@@ -1,0 +1,25 @@
+name: Flag CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - flag-service/**
+      - .github/workflows/flag.yml
+      - .github/workflows/ci-python.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - flag-service/**
+      - .github/workflows/flag.yml
+      - .github/workflows/ci-python.yml
+
+jobs:
+  pipeline:
+    uses: ./.github/workflows/ci-python.yml
+    with:
+      service: flag-service
+      publish: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit

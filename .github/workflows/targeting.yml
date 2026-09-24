@@ -1,0 +1,25 @@
+name: Targeting CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - targeting-service/**
+      - .github/workflows/targeting.yml
+      - .github/workflows/ci-python.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - targeting-service/**
+      - .github/workflows/targeting.yml
+      - .github/workflows/ci-python.yml
+
+jobs:
+  pipeline:
+    uses: ./.github/workflows/ci-python.yml
+    with:
+      service: targeting-service
+      publish: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit

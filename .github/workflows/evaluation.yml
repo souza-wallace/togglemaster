@@ -1,0 +1,25 @@
+name: Evaluation CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - evaluation-service/**
+      - .github/workflows/evaluation.yml
+      - .github/workflows/ci-go.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - evaluation-service/**
+      - .github/workflows/evaluation.yml
+      - .github/workflows/ci-go.yml
+
+jobs:
+  pipeline:
+    uses: ./.github/workflows/ci-go.yml
+    with:
+      service: evaluation-service
+      publish: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit

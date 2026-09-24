@@ -1,0 +1,187 @@
+name: CI Go
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: Pasta do microsserviço
+        required: true
+        type: string
+      publish:
+        description: Publica a imagem e atualiza o GitOps. Verdadeiro só no push da main.
+        required: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ inputs.service }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 980228515477.dkr.ecr.us-east-1.amazonaws.com
+  GITOPS_REPOSITORY: souza-wallace/togglemaster-k8s
+
+jobs:
+  test:
+    name: Build e teste
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+          cache: false
+
+      - name: Testes unitários
+        working-directory: ${{ inputs.service }}
+        run: go test ./...
+
+  lint:
+    name: Lint
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+          cache: false
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.61.0
+          working-directory: ${{ inputs.service }}
+          args: --timeout=5m
+
+  security:
+    name: SAST e SCA
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+          cache: false
+
+      - name: SCA com Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ inputs.service }}
+          scanners: vuln
+          severity: CRITICAL
+          exit-code: "1"
+          format: table
+
+      - name: SAST com gosec
+        working-directory: ${{ inputs.service }}
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.21.4
+          gosec -severity high ./...
+
+  image:
+    name: Imagem
+    needs: security
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Define a tag
+        id: meta
+        env:
+          SERVICE: ${{ inputs.service }}
+        run: |
+          tag="v1.0.0-${GITHUB_SHA::7}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "local=local/${SERVICE}:${tag}" >> "$GITHUB_OUTPUT"
+          echo "image=${ECR_REGISTRY}/${SERVICE}:${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        working-directory: ${{ inputs.service }}
+        env:
+          LOCAL_IMAGE: ${{ steps.meta.outputs.local }}
+          IMAGE: ${{ steps.meta.outputs.image }}
+        run: docker build -t "$LOCAL_IMAGE" -t "$IMAGE" .
+
+      - name: Scan da imagem
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.meta.outputs.local }}
+          severity: CRITICAL
+          exit-code: "1"
+          format: table
+          vuln-type: os,library
+
+      - name: Login AWS
+        if: inputs.publish == true
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login ECR
+        if: inputs.publish == true
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push
+        if: inputs.publish == true
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+        run: docker push "$IMAGE"
+
+  gitops:
+    name: GitOps
+    needs: image
+    if: inputs.publish == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do GitOps
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GITOPS_REPOSITORY }}
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+
+      - name: Atualiza a tag da imagem
+        working-directory: gitops
+        env:
+          SERVICE: ${{ inputs.service }}
+          IMAGE: ${{ needs.image.outputs.image }}
+        run: |
+          python3 - << 'PY'
+          import os
+          import pathlib
+          import re
+
+          service = os.environ["SERVICE"]
+          image = os.environ["IMAGE"]
+          path = pathlib.Path(service) / "deployment.yaml"
+          text = path.read_text()
+          pattern = (
+              rf"(image:\s*)[\w.\-]+/{re.escape(service)}:\S+"
+          )
+          updated, count = re.subn(pattern, rf"\g<1>{image}", text, count=1)
+          if count != 1:
+              raise SystemExit(f"linha image nao encontrada em {path}")
+          path.write_text(updated)
+          PY
+          git add "${SERVICE}/deployment.yaml"
+          if git diff --cached --quiet; then
+            echo "A tag ja aponta para ${IMAGE}"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -m "chore(${SERVICE}): atualiza imagem para ${IMAGE##*:}"
+          git push

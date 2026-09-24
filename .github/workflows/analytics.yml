@@ -1,0 +1,25 @@
+name: Analytics CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - analytics-service/**
+      - .github/workflows/analytics.yml
+      - .github/workflows/ci-python.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - analytics-service/**
+      - .github/workflows/analytics.yml
+      - .github/workflows/ci-python.yml
+
+jobs:
+  pipeline:
+    uses: ./.github/workflows/ci-python.yml
+    with:
+      service: analytics-service
+      publish: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit

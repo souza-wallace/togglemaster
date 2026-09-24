@@ -1,0 +1,25 @@
+name: Auth CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - auth-service/**
+      - .github/workflows/auth.yml
+      - .github/workflows/ci-go.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - auth-service/**
+      - .github/workflows/auth.yml
+      - .github/workflows/ci-go.yml
+
+jobs:
+  pipeline:
+    uses: ./.github/workflows/ci-go.yml
+    with:
+      service: auth-service
+      publish: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    secrets: inherit
