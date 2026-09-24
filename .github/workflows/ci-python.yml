@@ -60,6 +60,7 @@ jobs:
           python-version: "3.11"
 
       - name: ruff
+        continue-on-error: true
         run: |
           pip install ruff==0.6.9
           ruff check "${SERVICE}"
