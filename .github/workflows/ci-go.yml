@@ -92,8 +92,9 @@ jobs:
       - name: SAST com gosec
         working-directory: ${{ inputs.service }}
         run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@v2.21.4
-          gosec -severity high ./...
+          curl -sSL "https://github.com/securego/gosec/releases/download/v2.21.4/gosec_2.21.4_linux_amd64.tar.gz" \
+            | tar -xz -C /tmp gosec
+          /tmp/gosec -severity high ./...
 
   image:
     name: Imagem
