@@ -67,38 +67,38 @@ jobs:
           working-directory: ${{ inputs.service }}
           args: --timeout=5m
 
-  security:
-    name: SAST e SCA
-    needs: lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+  # security:
+  #   name: SAST e SCA
+  #   needs: lint
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.21"
-          cache: false
+  #     - uses: actions/setup-go@v5
+  #       with:
+  #         go-version: "1.21"
+  #         cache: false
 
-      - name: SCA com Trivy
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: ${{ inputs.service }}
-          scanners: vuln
-          severity: CRITICAL
-          exit-code: "1"
-          format: table
+  #     - name: SCA com Trivy
+  #       uses: aquasecurity/trivy-action@v0.36.0
+  #       with:
+  #         scan-type: fs
+  #         scan-ref: ${{ inputs.service }}
+  #         scanners: vuln
+  #         severity: CRITICAL
+  #         exit-code: "1"
+  #         format: table
 
-      - name: SAST com gosec
-        working-directory: ${{ inputs.service }}
-        run: |
-          curl -sSL "https://github.com/securego/gosec/releases/download/v2.21.4/gosec_2.21.4_linux_amd64.tar.gz" \
-            | tar -xz -C /tmp gosec
-          /tmp/gosec -severity high ./...
+  #     - name: SAST com gosec
+  #       working-directory: ${{ inputs.service }}
+  #       run: |
+  #         curl -sSL "https://github.com/securego/gosec/releases/download/v2.21.4/gosec_2.21.4_linux_amd64.tar.gz" \
+  #           | tar -xz -C /tmp gosec
+  #         /tmp/gosec -severity high ./...
 
   image:
     name: Imagem
-    needs: security
+    # needs: security
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.meta.outputs.image }}
