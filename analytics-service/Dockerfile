@@ -13,4 +13,4 @@ COPY app.py .
 
 EXPOSE 8005
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8005", "--workers", "1", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8005", "--workers", "1", "app:app"] 
