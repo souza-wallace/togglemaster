@@ -1,0 +1,205 @@
+services:
+  # ---------------------------------------------------------------------------
+  # Data stores
+  # ---------------------------------------------------------------------------
+  postgres-auth:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: togglemaster
+      POSTGRES_PASSWORD: togglemaster
+      POSTGRES_DB: auth_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_auth_data:/var/lib/postgresql/data
+      - ./infra/postgres-auth/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U togglemaster -d auth_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres-app:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: togglemaster
+      POSTGRES_PASSWORD: togglemaster
+      POSTGRES_DB: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_app_data:/var/lib/postgresql/data
+      - ./infra/postgres-app/01-init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+      - ./infra/postgres-app/flags-schema.sql:/schemas/flags-schema.sql:ro
+      - ./infra/postgres-app/targeting-schema.sql:/schemas/targeting-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U togglemaster -d flags_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  dynamodb:
+    image: amazon/dynamodb-local:2.5.2
+    command: "-jar DynamoDBLocal.jar -sharedDb -inMemory"
+    ports:
+      - "8006:8000"
+
+  dynamodb-init:
+    image: amazon/aws-cli:2.15.0
+    depends_on:
+      - dynamodb
+    environment:
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_REGION: us-east-1
+      DYNAMODB_ENDPOINT: http://dynamodb:8000
+      TABLE_NAME: ToggleMasterAnalytics
+    volumes:
+      - ./infra/dynamodb/create-table.sh:/create-table.sh:ro
+    entrypoint: ["/bin/sh", "/create-table.sh"]
+    restart: "no"
+
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.5.7
+    ports:
+      - "9324:9324"
+      - "9325:9325"
+    volumes:
+      - ./infra/elasticmq.conf:/opt/elasticmq.conf:ro
+
+  # ---------------------------------------------------------------------------
+  # Microservices
+  # ---------------------------------------------------------------------------
+  auth-service:
+    build:
+      context: ./auth-service
+    ports:
+      - "8001:8001"
+    environment:
+      PORT: "8001"
+      DATABASE_URL: postgres://togglemaster:togglemaster@postgres-auth:5432/auth_db?sslmode=disable
+      MASTER_KEY: admin-secreto-123
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8001/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  flag-service:
+    build:
+      context: ./flag-service
+    ports:
+      - "8002:8002"
+    environment:
+      PORT: "8002"
+      DATABASE_URL: postgres://togglemaster:togglemaster@postgres-app:5432/flags_db?sslmode=disable
+      AUTH_SERVICE_URL: http://auth-service:8001
+    depends_on:
+      postgres-app:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8002/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  targeting-service:
+    build:
+      context: ./targeting-service
+    ports:
+      - "8003:8003"
+    environment:
+      PORT: "8003"
+      DATABASE_URL: postgres://togglemaster:togglemaster@postgres-app:5432/targeting_db?sslmode=disable
+      AUTH_SERVICE_URL: http://auth-service:8001
+    depends_on:
+      postgres-app:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8003/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  evaluation-service:
+    build:
+      context: ./evaluation-service
+    ports:
+      - "8004:8004"
+    environment:
+      PORT: "8004"
+      REDIS_URL: redis://redis:6379
+      FLAG_SERVICE_URL: http://flag-service:8002
+      TARGETING_SERVICE_URL: http://targeting-service:8003
+      SERVICE_API_KEY: tm_key_local_evaluation_service_dev_only_0001
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      AWS_SQS_URL: http://elasticmq:9324/queue/togglemaster-events
+      SQS_ENDPOINT_URL: http://elasticmq:9324
+    depends_on:
+      redis:
+        condition: service_healthy
+      flag-service:
+        condition: service_healthy
+      targeting-service:
+        condition: service_healthy
+      elasticmq:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8004/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  analytics-service:
+    build:
+      context: ./analytics-service
+    ports:
+      - "8005:8005"
+    environment:
+      PORT: "8005"
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      AWS_SQS_URL: http://elasticmq:9324/queue/togglemaster-events
+      AWS_DYNAMODB_TABLE: ToggleMasterAnalytics
+      SQS_ENDPOINT_URL: http://elasticmq:9324
+      DYNAMODB_ENDPOINT_URL: http://dynamodb:8000
+    depends_on:
+      elasticmq:
+        condition: service_started
+      dynamodb-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8005/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  postgres_auth_data:
+  postgres_app_data:
