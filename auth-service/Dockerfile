@@ -2,7 +2,7 @@
 FROM golang:1.21-alpine AS builder
 
 WORKDIR /src
-
+ 
 RUN apk add --no-cache git ca-certificates
 
 COPY . .
