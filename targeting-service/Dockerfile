@@ -14,3 +14,4 @@ COPY app.py .
 EXPOSE 8003
 
 CMD ["gunicorn", "--bind", "0.0.0.0:8003", "app:app"]
+ 
