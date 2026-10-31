@@ -33,7 +33,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.21"
+          go-version: "1.27.3"
           cache: false
 
       - name: Testes unitários
@@ -56,7 +56,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.21"
+          go-version: "1.27.3"
           cache: false
 
       - name: golangci-lint
@@ -76,7 +76,7 @@ jobs:
 
   #     - uses: actions/setup-go@v5
   #       with:
-  #         go-version: "1.21"
+  #         go-version: "1.27.3"
   #         cache: false
 
   #     - name: SCA com Trivy
