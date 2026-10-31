@@ -188,7 +188,16 @@ jobs:
             echo "A tag ja aponta para ${IMAGE}"
             exit 0
           fi
-          git -c user.name="github-actions[bot]" \
-              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit -m "chore(${SERVICE}): atualiza imagem para ${IMAGE##*:}"
-          git push
+          # Identidade também usada pelo rebase abaixo, que recria o commit sobre o remoto.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(${SERVICE}): atualiza imagem para ${IMAGE##*:}"
+          # Outros serviços podem ter commitado no GitOps desde o checkout (pipelines em paralelo).
+          # Cada um altera só o próprio deployment.yaml, então o rebase não conflita.
+          for attempt in 1 2 3 4 5; do
+            git pull --rebase origin HEAD && git push origin HEAD && exit 0
+            git rebase --abort 2>/dev/null || true
+            echo "Push recusado (tentativa ${attempt}), tentando de novo..."
+            sleep $((attempt * 3))
+          done
+          exit 1
