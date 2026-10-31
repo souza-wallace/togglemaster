@@ -35,6 +35,33 @@ except psycopg2.OperationalError as e:
     log.critical(f"Erro fatal ao conectar ao PostgreSQL: {e}")
     sys.exit(1)
 
+# --- Migração do schema ---
+# Identificador arbitrário do lock. Só precisa ser o mesmo entre as réplicas do flag-service.
+MIGRATION_LOCK_ID = 820002
+
+def run_migrations():
+    """ Aplica db/init.sql antes de a API atender. O script é idempotente, então roda em todo start.
+    O advisory lock faz réplicas e workers que sobem ao mesmo tempo esperarem um pelo outro. """
+    schema_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "db", "init.sql")
+    with open(schema_path) as f:
+        schema_sql = f.read()
+
+    conn = pool.getconn()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_xact_lock(%s)", (MIGRATION_LOCK_ID,))
+                cur.execute(schema_sql)
+    finally:
+        pool.putconn(conn)
+
+try:
+    run_migrations()
+    log.info("Schema do banco aplicado.")
+except Exception as e:
+    log.critical(f"Erro fatal ao aplicar o schema do banco: {e}")
+    sys.exit(1)
+
 # --- Middleware de Autenticação ---
 def require_auth(f):
     """ Middleware para validar a chave de API contra o auth-service """

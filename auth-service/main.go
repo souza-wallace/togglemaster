@@ -43,6 +43,10 @@ func main() {
 	}
 	defer db.Close()
 
+	if err := runMigrations(db); err != nil {
+		log.Fatalf("Não foi possível aplicar o schema do banco: %v", err)
+	}
+
 	app := &App{
 		DB:         db,
 		MasterKey:  masterKey,
