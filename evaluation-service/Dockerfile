@@ -22,3 +22,4 @@ COPY --from=builder /evaluation-service /app/evaluation-service
 EXPOSE 8004
 
 CMD ["/app/evaluation-service"]
+ 

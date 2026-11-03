@@ -16,6 +16,6 @@ RUN apk add --no-cache ca-certificates wget
 WORKDIR /app
 COPY --from=builder /auth-service /app/auth-service
 
-EXPOSE 8001
+EXPOSE 8001 
 
 CMD ["/app/auth-service"]
